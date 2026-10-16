@@ -2,6 +2,7 @@
 
 /* ---------- Configuration ---------- */
 const CONFIG = {
+  useMock: true,
   apiKey: ENV.NEWS_API_KEY,
   endpoint: "https://newsapi.org/v2/top-headlines",
   searchEndpoint: "https://newsapi.org/v2/everything",
@@ -94,6 +95,7 @@ const getStrategies = ({ country, category }) => {
 
 /* ---------- API (AJAX with XMLHttpRequest) ---------- */
 const fetchArticles = (url) =>
+  
   new Promise((resolve, reject) => {
     const request = new XMLHttpRequest();
     request.open("GET", url, true);
