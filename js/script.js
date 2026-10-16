@@ -1,5 +1,4 @@
-
-
+"use strict";
 
 /* ---------- Configuration ---------- */
 const CONFIG = {
@@ -11,7 +10,6 @@ const CONFIG = {
   defaults: { country: "us", category: "sports" },
 };
 
-// Countries supported by NewsAPI top-headlines
 const COUNTRY_CODES = [
   "ae", "ar", "at", "au", "be", "bg", "br", "ca", "ch", "cn", "co", "cu", "cz",
   "de", "dz", "eg", "fr", "gb", "gh", "gr", "hk", "hu", "id", "ie", "il", "in",
@@ -24,12 +22,18 @@ const CATEGORIES = [
   "business", "entertainment", "general", "health", "science", "sports", "technology",
 ];
 
+/* ---------- State ---------- */
 const state = {
   country: CONFIG.defaults.country,
   category: CONFIG.defaults.category,
   articles: [],
+  strategy: null,
+  page: 1,
+  loaded: 0,
+  total: 0,
 };
 
+/* ---------- DOM references ---------- */
 const els = {
   form: document.getElementById("filterForm"),
   country: document.getElementById("countrySelect"),
@@ -38,8 +42,10 @@ const els = {
   news: document.getElementById("news"),
   status: document.getElementById("status"),
   info: document.getElementById("resultInfo"),
+  loadMore: document.getElementById("loadMoreBtn"),
 };
 
+/* ---------- Helpers ---------- */
 const capitalize = (text) => text.charAt(0).toUpperCase() + text.slice(1);
 
 const escapeHtml = (text = "") =>
@@ -55,9 +61,10 @@ const getCountryName = (() => {
   return (code) => names.of(code.toUpperCase());
 })();
 
-const buildUrl = (endpoint, params) => {
+const buildUrl = (endpoint, params, page = 1) => {
   const query = new URLSearchParams({
     ...params,
+    page,
     pageSize: CONFIG.pageSize,
     apiKey: CONFIG.apiKey,
   });
@@ -66,26 +73,21 @@ const buildUrl = (endpoint, params) => {
 
 const isValidArticle = (article) => article.title && article.title !== "[Removed]";
 
+// Ordered list of attempts. The first one that returns articles wins.
 const getStrategies = ({ country, category }) => {
   const countryName = getCountryName(country);
   const topic = category === "general" ? "" : ` AND ${category}`;
 
   return [
+    { url: (page) => buildUrl(CONFIG.endpoint, { country, category }, page) },
+    { url: (page) => buildUrl(CONFIG.endpoint, { country }, page) },
     {
-      notice: null,
-      url: buildUrl(CONFIG.endpoint, { country, category }),
-    },
-    {
-      notice: `No ${capitalize(category)} headlines available for ${countryName}. Showing general headlines instead.`,
-      url: buildUrl(CONFIG.endpoint, { country }),
-    },
-    {
-      notice: `NewsAPI has no top headlines for ${countryName}. Showing the latest articles that mention it.`,
-      url: buildUrl(CONFIG.searchEndpoint, {
-        q: `"${countryName}"${topic}`,
-        language: "en",
-        sortBy: "publishedAt",
-      }),
+      url: (page) =>
+        buildUrl(CONFIG.searchEndpoint, {
+          q: `"${countryName}"${topic}`,
+          language: "en",
+          sortBy: "publishedAt",
+        }, page),
     },
   ];
 };
@@ -106,7 +108,7 @@ const fetchArticles = (url) =>
       }
 
       if (request.status === 200) {
-        resolve(body.articles ?? []);
+        resolve({ articles: body.articles ?? [], total: body.totalResults ?? 0 });
       } else {
         reject(new Error(body.message || `Request failed (status ${request.status}).`));
       }
@@ -119,17 +121,31 @@ const fetchArticles = (url) =>
     request.send();
   });
 
+/* ---------- Rendering ---------- */
 const showStatus = (html) => {
   els.status.innerHTML = html;
 };
 
+const skeletonCard = () => `
+  <div class="col-12 col-md-6 col-lg-4">
+    <div class="card news-card h-100 shadow-sm" aria-hidden="true">
+      <div class="placeholder-glow">
+        <span class="placeholder w-100 d-block" style="height: 200px"></span>
+      </div>
+      <div class="card-body placeholder-glow">
+        <span class="placeholder col-4 d-block mb-2"></span>
+        <span class="placeholder col-12 d-block mb-2"></span>
+        <span class="placeholder col-10 d-block mb-2"></span>
+        <span class="placeholder col-3 d-block"></span>
+      </div>
+    </div>
+  </div>`;
+
 const showLoading = () => {
-  els.news.innerHTML = "";
   els.info.textContent = "";
-  showStatus(`
-    <div class="spinner-border text-primary" role="status"></div>
-    <p class="mt-2">Loading news...</p>
-  `);
+  showStatus("");
+  els.loadMore.classList.add("d-none");
+  els.news.innerHTML = skeletonCard().repeat(6);
 };
 
 const showError = (message) => {
@@ -162,8 +178,18 @@ const createCard = (article) => {
   `;
 };
 
-const renderArticles = (articles, notice = null) => {
-  if (articles.length === 0) {
+const showInfo = () => {
+  els.info.textContent = `${state.articles.length} articles · ${getCountryName(state.country)} · ${capitalize(state.category)}`;
+};
+
+const updateLoadMore = () => {
+  els.loadMore.classList.toggle("d-none", state.loaded >= state.total);
+  els.loadMore.disabled = false;
+  els.loadMore.textContent = "Load more";
+};
+
+const renderArticles = () => {
+  if (state.articles.length === 0) {
     els.news.innerHTML = "";
     els.info.textContent = "";
     showStatus('<div class="alert alert-info">No articles found for this selection.</div>');
@@ -171,27 +197,48 @@ const renderArticles = (articles, notice = null) => {
   }
 
   showStatus("");
-  els.info.textContent = `${articles.length} articles · ${getCountryName(state.country)} · ${capitalize(state.category)}`;
-  els.news.innerHTML = articles.map(createCard).join("");
+  showInfo();
+  els.news.innerHTML = state.articles.map(createCard).join("");
+  updateLoadMore();
 };
 
+/* ---------- Controller ---------- */
 const loadNews = async () => {
   showLoading();
 
   try {
-    let notice = null;
-    let articles = [];
-
     for (const strategy of getStrategies(state)) {
-      articles = (await fetchArticles(strategy.url)).filter(isValidArticle);
-      notice = strategy.notice;
-      if (articles.length > 0) break;
+      const { articles, total } = await fetchArticles(strategy.url(1));
+      state.strategy = strategy;
+      state.page = 1;
+      state.loaded = articles.length;
+      state.total = total;
+      state.articles = articles.filter(isValidArticle);
+      if (state.articles.length > 0) break;
     }
-
-    state.articles = articles;
-    renderArticles(articles, notice);
+    renderArticles();
   } catch (error) {
     showError(error.message);
+  }
+};
+
+const loadMore = async () => {
+  els.loadMore.disabled = true;
+  els.loadMore.textContent = "Loading...";
+
+  try {
+    const { articles, total } = await fetchArticles(state.strategy.url(state.page + 1));
+    const fresh = articles.filter(isValidArticle);
+    state.page += 1;
+    state.loaded += articles.length;
+    state.total = total;
+    state.articles.push(...fresh);
+    els.news.insertAdjacentHTML("beforeend", fresh.map(createCard).join(""));
+    showInfo();
+    updateLoadMore();
+  } catch (error) {
+    els.loadMore.classList.add("d-none");
+    showStatus(`<div class="alert alert-warning">${escapeHtml(error.message)}</div>`);
   }
 };
 
@@ -226,6 +273,7 @@ const resetFilters = () => {
   applyFilters();
 };
 
+/* ---------- Init ---------- */
 const init = () => {
   initFilters();
 
@@ -236,6 +284,7 @@ const init = () => {
   els.country.addEventListener("change", applyFilters);
   els.category.addEventListener("change", applyFilters);
   els.reset.addEventListener("click", resetFilters);
+  els.loadMore.addEventListener("click", loadMore);
 
   // Fallback image if an article image fails to load (error events don't bubble)
   els.news.addEventListener(
