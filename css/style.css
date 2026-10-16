@@ -1,0 +1,36 @@
+body {
+  background-color: #f4f6f9;
+}
+
+.news-card {
+  border: none;
+  border-radius: 12px;
+  overflow: hidden;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.news-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.12);
+}
+
+.news-card img {
+  height: 200px;
+  object-fit: cover;
+}
+
+.news-card .card-title {
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+
+.news-card .card-text {
+  font-size: 0.9rem;
+  color: #555;
+}
+
+.news-source {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
