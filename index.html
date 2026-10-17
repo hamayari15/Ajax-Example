@@ -18,15 +18,19 @@
   <section class="filters bg-white border-bottom py-3 mb-4">
     <div class="container">
       <form id="filterForm" class="row g-3 align-items-end">
-        <div class="col-12 col-md-4">
+        <div class="col-12 col-md-3">
           <label for="countrySelect" class="form-label mb-1">Country</label>
           <select id="countrySelect" class="form-select"></select>
         </div>
-        <div class="col-12 col-md-4">
+        <div class="col-12 col-md-3">
           <label for="categorySelect" class="form-label mb-1">Category</label>
           <select id="categorySelect" class="form-select"></select>
         </div>
-        <div class="col-12 col-md-4 d-flex gap-2">
+        <div class="col-12 col-md-3">
+          <label for="languageSelect" class="form-label mb-1">Language</label>
+          <select id="languageSelect" class="form-select"></select>
+        </div>
+        <div class="col-12 col-md-3 d-flex gap-2">
           <button type="submit" class="btn btn-primary flex-fill">Apply</button>
           <button type="button" id="resetBtn" class="btn btn-outline-secondary">Reset</button>
         </div>
@@ -48,7 +52,6 @@
   </footer>
 
   <script src="config.js"></script>
-  <script src="js/mock.js"></script>
   <script src="js/script.js"></script>
 </body>
 </html>

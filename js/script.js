@@ -2,18 +2,17 @@
 
 /* ---------- Configuration ---------- */
 const CONFIG = {
-  useMock: true,
   apiKey: ENV.NEWS_API_KEY,
   endpoint: "https://newsapi.org/v2/top-headlines",
   searchEndpoint: "https://newsapi.org/v2/everything",
   pageSize: 30,
   placeholderImage: "https://placehold.co/600x400?text=No+Image",
-  defaults: { country: "us", category: "sports" },
+  defaults: { country: "us", category: "sports", language: "en" },
 };
 
 const COUNTRY_CODES = [
   "ae", "ar", "at", "au", "be", "bg", "br", "ca", "ch", "cn", "co", "cu", "cz",
-  "de", "dz", "eg", "fr", "gb", "gh", "gr", "hk", "hu", "id", "ie", "il", "in",
+  "de", "dz", "eg", "fr", "gb", "gh", "gr", "hk", "hu", "id", "ie", "sd", "in",
   "iq", "it", "jo", "jp", "ke", "kr", "kw", "lb", "lt", "lv", "ly", "ma", "mx",
   "my", "ng", "nl", "no", "nz", "pk", "ph", "pl", "pt", "qa", "ro", "rs", "ru",
   "sa", "se", "sg", "si", "sk", "th", "tn", "tr", "tw", "ua", "us", "ve", "za",
@@ -23,10 +22,23 @@ const CATEGORIES = [
   "business", "entertainment", "general", "health", "science", "sports", "technology",
 ];
 
-/* ---------- State ---------- */
+const LANGUAGES = [
+  { value: "en", label: "English" },
+  { value: "fr", label: "Français" },
+  { value: "ar", label: "العربية" },
+];
+
+// Search keyword for each category, per language ("" = no keyword)
+const CATEGORY_KEYWORDS = {
+  en: { business: "business", entertainment: "entertainment", general: "", health: "health", science: "science", sports: "sports", technology: "technology" },
+  fr: { business: "économie", entertainment: "divertissement", general: "", health: "santé", science: "science", sports: "sport", technology: "technologie" },
+  ar: { business: "اقتصاد", entertainment: "ترفيه", general: "", health: "صحة", science: "علوم", sports: "رياضة", technology: "تكنولوجيا" },
+};
+
 const state = {
   country: CONFIG.defaults.country,
   category: CONFIG.defaults.category,
+  language: CONFIG.defaults.language,
   articles: [],
   strategy: null,
   page: 1,
@@ -34,11 +46,11 @@ const state = {
   total: 0,
 };
 
-/* ---------- DOM references ---------- */
 const els = {
   form: document.getElementById("filterForm"),
   country: document.getElementById("countrySelect"),
   category: document.getElementById("categorySelect"),
+  language: document.getElementById("languageSelect"),
   reset: document.getElementById("resetBtn"),
   news: document.getElementById("news"),
   status: document.getElementById("status"),
@@ -46,7 +58,6 @@ const els = {
   loadMore: document.getElementById("loadMoreBtn"),
 };
 
-/* ---------- Helpers ---------- */
 const capitalize = (text) => text.charAt(0).toUpperCase() + text.slice(1);
 
 const escapeHtml = (text = "") =>
@@ -57,10 +68,11 @@ const escapeHtml = (text = "") =>
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
 
-const getCountryName = (() => {
-  const names = new Intl.DisplayNames(["en"], { type: "region" });
-  return (code) => names.of(code.toUpperCase());
-})();
+const regionNames = {};
+const getCountryName = (code, lang = "en") => {
+  regionNames[lang] ??= new Intl.DisplayNames([lang], { type: "region" });
+  return regionNames[lang].of(code.toUpperCase());
+};
 
 const buildUrl = (endpoint, params, page = 1) => {
   const query = new URLSearchParams({
@@ -74,28 +86,29 @@ const buildUrl = (endpoint, params, page = 1) => {
 
 const isValidArticle = (article) => article.title && article.title !== "[Removed]";
 
-// Ordered list of attempts. The first one that returns articles wins.
-const getStrategies = ({ country, category }) => {
-  const countryName = getCountryName(country);
-  const topic = category === "general" ? "" : ` AND ${category}`;
+const getStrategies = ({ country, category, language }) => {
+  const topic = CATEGORY_KEYWORDS[language][category];
+
+  const search = (keyword) => (page) =>
+    buildUrl(CONFIG.searchEndpoint, {
+      q: [`"${getCountryName(country, language)}"`, keyword].filter(Boolean).join(" AND "),
+      language,
+      sortBy: "publishedAt",
+    }, page);
+
+  if (language !== "en") {
+    return topic ? [{ url: search(topic) }, { url: search("") }] : [{ url: search("") }];
+  }
 
   return [
     { url: (page) => buildUrl(CONFIG.endpoint, { country, category }, page) },
     { url: (page) => buildUrl(CONFIG.endpoint, { country }, page) },
-    {
-      url: (page) =>
-        buildUrl(CONFIG.searchEndpoint, {
-          q: `"${countryName}"${topic}`,
-          language: "en",
-          sortBy: "publishedAt",
-        }, page),
-    },
+    { url: search(topic) },
   ];
 };
 
 /* ---------- API (AJAX with XMLHttpRequest) ---------- */
 const fetchArticles = (url) =>
-  
   new Promise((resolve, reject) => {
     const request = new XMLHttpRequest();
     request.open("GET", url, true);
@@ -123,7 +136,6 @@ const fetchArticles = (url) =>
     request.send();
   });
 
-/* ---------- Rendering ---------- */
 const showStatus = (html) => {
   els.status.innerHTML = html;
 };
@@ -168,8 +180,8 @@ const createCard = (article) => {
         <img src="${escapeHtml(image)}" class="card-img-top" alt="" loading="lazy">
         <div class="card-body d-flex flex-column">
           <span class="news-source text-primary mb-1">${escapeHtml(article.source?.name ?? "Unknown")}</span>
-          <h5 class="card-title">${escapeHtml(article.title)}</h5>
-          <p class="card-text">${escapeHtml(article.description ?? "")}</p>
+          <h5 class="card-title" dir="auto">${escapeHtml(article.title)}</h5>
+          <p class="card-text" dir="auto">${escapeHtml(article.description ?? "")}</p>
           <div class="mt-auto d-flex justify-content-between align-items-center">
             <small class="text-muted">${date}</small>
             <a href="${escapeHtml(article.url)}" target="_blank" rel="noopener" class="btn btn-primary btn-sm">Read more</a>
@@ -204,7 +216,6 @@ const renderArticles = () => {
   updateLoadMore();
 };
 
-/* ---------- Controller ---------- */
 const loadNews = async () => {
   showLoading();
 
@@ -261,21 +272,23 @@ const initFilters = () => {
 
   populateSelect(els.country, countries, state.country);
   populateSelect(els.category, categories, state.category);
+  populateSelect(els.language, LANGUAGES, state.language);
 };
 
 const applyFilters = () => {
   state.country = els.country.value;
   state.category = els.category.value;
+  state.language = els.language.value;
   loadNews();
 };
 
 const resetFilters = () => {
   els.country.value = CONFIG.defaults.country;
   els.category.value = CONFIG.defaults.category;
+  els.language.value = CONFIG.defaults.language;
   applyFilters();
 };
 
-/* ---------- Init ---------- */
 const init = () => {
   initFilters();
 
@@ -285,10 +298,10 @@ const init = () => {
   });
   els.country.addEventListener("change", applyFilters);
   els.category.addEventListener("change", applyFilters);
+  els.language.addEventListener("change", applyFilters);
   els.reset.addEventListener("click", resetFilters);
   els.loadMore.addEventListener("click", loadMore);
 
-  // Fallback image if an article image fails to load (error events don't bubble)
   els.news.addEventListener(
     "error",
     (event) => {
